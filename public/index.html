@@ -1,0 +1,36 @@
+    <!doctype html>
+    <html lang="en">
+    <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Quick Notes (with Edit · Search · Pin)</title>
+    <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body>
+    <main class="container">
+        <h1>Quick Notes</h1>
+
+        <form id="noteForm" class="note-form" autocomplete="off">
+        <textarea id="noteInput" placeholder="Type a short note..." maxlength="500"></textarea>
+        <div class="form-row">
+            <div style="display:flex; gap:12px; align-items:center;">
+            <input id="searchInput" placeholder="Search notes..." />
+            <span id="charCount">0/500</span>
+            </div>
+            <button type="submit" id="addBtn">Add Note</button>
+        </div>
+        </form>
+
+        <section>
+        <h2>Your Notes</h2>
+        <ul id="notesList" class="notes-list"></ul>
+        </section>
+
+        <footer class="footer">
+        <small>🗂️ Notes are safely saved on the server — they stay even after restart.</small>
+        </footer>
+    </main>
+
+    <script src="app.js"></script>
+    </body>
+    </html>
