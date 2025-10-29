@@ -1,0 +1,59 @@
+    <!doctype html>
+    <html lang="en">
+    <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Register - Quick Notes</title>
+    <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body>
+    <header>
+        <div><h1 style="margin:0">Quick Notes</h1></div>
+        <div id="auth-links"></div>
+    </header>
+
+    <main class="container">
+        <div class="auth-card">
+        <h2 style="margin-top:0">Create account</h2>
+
+        <label for="username" style="font-size:13px;color:#666">Username</label>
+        <input id="username" placeholder="Choose a username" autocomplete="username" />
+
+        <label for="password" style="font-size:13px;color:#666;margin-top:8px">Password</label>
+        <input id="password" placeholder="Choose a password" type="password" autocomplete="new-password" />
+
+        <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
+            <button id="registerBtn">Register & Login</button>
+            <a href="/login.html" style="align-self:center;color:#1f7ae0;text-decoration:none">Already have an account?</a>
+        </div>
+
+        <div id="msg" style="margin-top:12px;color:#d64545"></div>
+        </div>
+    </main>
+
+    <script>
+        const registerBtn = document.getElementById('registerBtn');
+        const msg = document.getElementById('msg');
+        registerBtn.onclick = async () => {
+        msg.textContent = '';
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        if (!username || !password) { msg.textContent = 'Enter username and password'; return; }
+        try {
+            const r = await fetch('/api/register', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ username, password }),
+            credentials: 'same-origin'
+            });
+            const j = await r.json();
+            if (!r.ok) { msg.textContent = j.error || 'Register failed'; return; }
+            // on success, server auto-logs-in and we redirect to root
+            window.location.href = '/';
+        } catch (err) {
+            msg.textContent = 'Network error';
+        }
+        };
+    </script>
+    </body>
+    </html>

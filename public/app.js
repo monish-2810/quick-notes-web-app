@@ -1,22 +1,75 @@
-    // app.js
+    // app.js (updated - single auth check, 401 handling)
     const notesList = document.getElementById('notesList');
     const noteForm = document.getElementById('noteForm');
     const noteInput = document.getElementById('noteInput');
     const charCount = document.getElementById('charCount');
     const searchInput = document.getElementById('searchInput');
+    const authContainer = document.getElementById('auth-links');
 
     const API = '/api/notes';
 
     let notesCache = []; // cached notes from server for client-side search/filter
+    let currentUser = null;
 
-    async function fetchNotes(){
+    // --- Auth helpers ---
+    async function loadAuth() {
     try {
-        const res = await fetch(API);
+        const r = await fetch('/api/me', { credentials: 'same-origin' });
+        if (!r.ok) { currentUser = null; renderAuthLinks(); return null; }
+        const j = await r.json();
+        currentUser = j;
+        renderAuthLinks();
+        return j;
+    } catch (err) {
+        console.error('Auth check failed', err);
+        currentUser = null;
+        renderAuthLinks();
+        return null;
+    }
+    }
+
+    function renderAuthLinks() {
+    if (!authContainer) return;
+    if (currentUser && currentUser.username) {
+        authContainer.innerHTML = `Hello, <strong>${escapeHtml(currentUser.username)}</strong> &nbsp; <button id="logoutBtn" class="small">Logout</button>`;
+        const btn = document.getElementById('logoutBtn');
+        if (btn) btn.onclick = async () => {
+        await fetch('/api/logout', { method: 'POST' });
+        // clear state and reload to show login screen
+        currentUser = null;
+        window.location.reload();
+        };
+    } else {
+        authContainer.innerHTML = `<a href="/login.html">Login</a> &nbsp; <a href="/register.html">Register</a>`;
+    }
+    }
+
+    // --- Notes / API helpers ---
+    async function fetchNotes(){
+    // ensure user is logged in
+    if (!currentUser) {
+        // Optionally redirect to login page:
+        // window.location.href = '/login.html';
+        // or just show empty notes and login links
+        notesList.innerHTML = '<li class="note"><div>Please login to view notes.</div></li>';
+        return;
+    }
+
+    try {
+        const res = await fetch(API, { credentials: 'same-origin' });
+        if (res.status === 401) {
+        // not authorized -> redirect to login
+        currentUser = null;
+        renderAuthLinks();
+        window.location.href = '/login.html';
+        return;
+        }
         const data = await res.json();
         notesCache = data;
         renderNotes(filterNotes(notesCache, searchInput.value));
     } catch(err){
         console.error('Fetch notes error', err);
+        notesList.innerHTML = '<li class="note"><div>Error loading notes.</div></li>';
     }
     }
 
@@ -38,7 +91,6 @@
         li.className = 'note';
         li.dataset.id = note.id;
 
-        // left: content
         const left = document.createElement('div');
         left.style.flex = '1';
         const meta = document.createElement('div');
@@ -54,7 +106,6 @@
         left.appendChild(meta);
         left.appendChild(textDiv);
 
-        // right: actions
         const actions = document.createElement('div');
         actions.className = 'note-actions';
 
@@ -63,7 +114,6 @@
         starBtn.title = note.pinned ? 'Unpin note' : 'Pin note';
         starBtn.innerHTML = note.pinned ? '★' : '☆';
         starBtn.onclick = async () => {
-        // toggle pinned with animation class on element (quick feedback)
         starBtn.disabled = true;
         const newPinned = !note.pinned;
         try {
@@ -97,7 +147,6 @@
     });
     }
 
-    // create small pinned badge element
     function createPinnedBadge(){
     const span = document.createElement('div');
     span.className = 'pinned-badge';
@@ -105,10 +154,9 @@
     return span;
     }
 
-    // inline edit flow
     function startEdit(li, note){
     const left = li.querySelector('div');
-    left.innerHTML = ''; // clear
+    left.innerHTML = '';
     const badge = note.pinned ? createPinnedBadge() : null;
     if (badge) left.appendChild(badge);
 
@@ -140,7 +188,7 @@
 
     textarea.focus();
 
-    cancel.onclick = () => fetchNotes(); // re-render original note set
+    cancel.onclick = () => fetchNotes();
     save.onclick = async () => {
         const newText = textarea.value.trim();
         if (!newText) return alert('Note cannot be empty');
@@ -157,36 +205,35 @@
     };
     }
 
-    // update note via API
     async function updateNote(id, patch){
     const res = await fetch(`${API}/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch)
+        body: JSON.stringify(patch),
+        credentials: 'same-origin'
     });
+    if (res.status === 401) {
+        window.location.href = '/login.html';
+        throw new Error('Unauthorized');
+    }
     if (!res.ok) throw new Error('update failed');
     return res.json();
     }
 
-    // delete with removal animation then backend call
     function removeWithAnim(li, id){
-    // add removing class to animate
     li.classList.add('removing');
-
-    // wait animation duration then call delete
     setTimeout(async () => {
         try {
-        const r = await fetch(`${API}/${id}`, { method: 'DELETE' });
+        const r = await fetch(`${API}/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+        if (r.status === 401) { window.location.href = '/login.html'; return; }
         if (!r.ok) throw new Error('delete failed');
-        // after delete, refresh list from server
         await fetchNotes();
         } catch (err) {
         console.error(err);
         alert('Delete failed');
-        // try to re-fetch to restore UI
         await fetchNotes();
         }
-    }, 220); // match CSS removing animation duration
+    }, 220);
     }
 
     noteForm.addEventListener('submit', async (e) => {
@@ -197,12 +244,13 @@
         const res = await fetch(API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        body: JSON.stringify({ text }),
+        credentials: 'same-origin'
         });
+        if (res.status === 401) { window.location.href = '/login.html'; return; }
         if (res.status === 201) {
         noteInput.value = '';
         updateCharCount();
-        // small delay for nicer UX: fetch after small pause so pop-in animation shows
         setTimeout(fetchNotes, 90);
         } else {
         const err = await res.json();
@@ -224,13 +272,20 @@
     renderNotes(filterNotes(notesCache, q));
     });
 
-    // Simple escape to avoid HTML injection in UI
     function escapeHtml(s){
-    return s.replace(/[&<>"'`]/g, c => ({
+    return String(s).replace(/[&<>"'`]/g, c => ({
         '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'
     })[c]);
     }
 
-    // initial load
-    fetchNotes();
+    // initial bootstrap: load auth then notes if logged in
+    (async function init(){
+    await loadAuth();
+    if (currentUser) {
+        fetchNotes();
+    } else {
+        // don't auto-fetch notes; show login link
+        notesList.innerHTML = '<li class="note"><div>Please login to view notes.</div></li>';
+    }
     updateCharCount();
+    })();

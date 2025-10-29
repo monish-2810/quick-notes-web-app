@@ -1,10 +1,13 @@
-    // server.js — In-memory + JSON-file persistence
+    // server.js — Notes (per-user) + Simple Auth (file-persistent users)
+    // Replaces previous server.js. Notes now include userId and are scoped per session user.
     const express = require('express');
     const bodyParser = require('body-parser');
     const cors = require('cors');
     const path = require('path');
     const fs = require('fs').promises;
     const { existsSync } = require('fs');
+    const session = require('express-session');
+    const bcrypt = require('bcryptjs');
 
     const app = express();
     const PORT = process.env.PORT || 3000;
@@ -13,161 +16,241 @@
     app.use(bodyParser.json());
     app.use(express.static(path.join(__dirname, 'public')));
 
-    // File where notes are persisted
-    const DATA_FILE = path.join(__dirname, 'notes.json');
-    const DATA_FILE_TMP = path.join(__dirname, 'notes.json.tmp');
-
-    // In-memory store
-    let notes = [];
-    let nextId = 1;
-
-    // --- Persistence helpers ---
-
-    // Load data from file (if exists). Synchronous-ish startup using async/await.
-    async function loadData() {
-    try {
-        if (!existsSync(DATA_FILE)) {
-        notes = [];
-        nextId = 1;
-        return;
-        }
-        const raw = await fs.readFile(DATA_FILE, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed.notes)) {
-        console.warn('notes.json format unexpected — resetting.');
-        notes = [];
-        nextId = 1;
-        return;
-        }
-        notes = parsed.notes;
-        // compute nextId safely (max id + 1)
-        const maxId = notes.reduce((m, n) => Math.max(m, typeof n.id === 'number' ? n.id : 0), 0);
-        nextId = maxId + 1;
-        console.log(`Loaded ${notes.length} notes from ${DATA_FILE}`);
-    } catch (err) {
-        console.error('Failed to load data file, starting with empty notes:', err);
-        notes = [];
-        nextId = 1;
+    // Session (demo: in-memory). Use a persistent store in production.
+    app.use(session({
+    name: 'quicknotes.sid',
+    secret: process.env.SESSION_SECRET || 'change_this_secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        httpOnly: true,
+        // secure: true, // enable when using HTTPS
+        maxAge: 24 * 60 * 60 * 1000 // 1 day
     }
-    }
+    }));
 
-    // Atomic write: write to temp and rename
+    // Files
+    const NOTES_FILE = path.join(__dirname, 'notes.json');
+    const NOTES_FILE_TMP = path.join(__dirname, 'notes.json.tmp');
+    const USERS_FILE = path.join(__dirname, 'users.json');
+    const USERS_FILE_TMP = path.join(__dirname, 'users.json.tmp');
+
+    // In-memory stores
+    let notes = [];     // notes: { id, userId, text, pinned, createdAt, updatedAt }
+    let nextNoteId = 1;
+
+    let users = [];     // users: { id, username, passwordHash, createdAt }
+    let nextUserId = 1;
+
+    // Atomic write helper
     async function atomicWriteFile(tmpPath, finalPath, content) {
     await fs.writeFile(tmpPath, content, { encoding: 'utf8' });
-    // fs.rename is atomic on most OSes
     await fs.rename(tmpPath, finalPath);
     }
 
-    // Debounced save to avoid too many writes
-    let saveScheduled = null;
-    let lastSavePromise = null;
-    function scheduleSave(delay = 150) {
-    if (saveScheduled) clearTimeout(saveScheduled);
-    saveScheduled = setTimeout(() => {
-        saveScheduled = null;
-        lastSavePromise = saveData();
-    }, delay);
-    return lastSavePromise;
+    // Load / save notes
+    async function loadNotes() {
+    try {
+        if (!existsSync(NOTES_FILE)) { notes = []; nextNoteId = 1; return; }
+        const raw = await fs.readFile(NOTES_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        // allow older files where notes were array of objects (without { notes: [...] })
+        if (Array.isArray(parsed)) notes = parsed;
+        else notes = Array.isArray(parsed.notes) ? parsed.notes : [];
+        const maxId = notes.reduce((m, n) => Math.max(m, typeof n.id === 'number' ? n.id : 0), 0);
+        nextNoteId = maxId + 1;
+        console.log(`Loaded ${notes.length} notes.`);
+    } catch (err) {
+        console.error('Failed to load notes.json, starting empty.', err);
+        notes = []; nextNoteId = 1;
+    }
     }
 
-    async function saveData() {
+    async function saveNotes() {
     try {
         const payload = JSON.stringify({ notes }, null, 2);
-        await atomicWriteFile(DATA_FILE_TMP, DATA_FILE, payload);
-        // console.log('Saved notes to', DATA_FILE);
+        await atomicWriteFile(NOTES_FILE_TMP, NOTES_FILE, payload);
     } catch (err) {
         console.error('Error saving notes:', err);
     }
     }
 
-    // ensure saving on exit
-    async function gracefulShutdown() {
+    // Load / save users
+    async function loadUsers() {
     try {
-        if (saveScheduled) {
-        clearTimeout(saveScheduled);
-        saveScheduled = null;
-        }
-        await saveData();
-        console.log('Saved data before exit.');
+        if (!existsSync(USERS_FILE)) { users = []; nextUserId = 1; return; }
+        const raw = await fs.readFile(USERS_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) users = parsed;
+        else users = Array.isArray(parsed.users) ? parsed.users : [];
+        const maxId = users.reduce((m, u) => Math.max(m, typeof u.id === 'number' ? u.id : 0), 0);
+        nextUserId = maxId + 1;
+        console.log(`Loaded ${users.length} users.`);
     } catch (err) {
-        console.error('Error during shutdown save:', err);
-    } finally {
-        process.exit(0);
+        console.error('Failed to load users.json, starting empty.', err);
+        users = []; nextUserId = 1;
     }
     }
-    process.on('SIGINT', gracefulShutdown);   // Ctrl+C
-    process.on('SIGTERM', gracefulShutdown);  // kill
 
-    // --- Utilities ---
-    function sortNotes(arr){
+    async function saveUsers() {
+    try {
+        const payload = JSON.stringify({ users }, null, 2);
+        await atomicWriteFile(USERS_FILE_TMP, USERS_FILE, payload);
+    } catch (err) {
+        console.error('Error saving users:', err);
+    }
+    }
+
+    // Debounced saves
+    let saveNotesTimeout = null;
+    function scheduleSaveNotes(delay = 150) {
+    if (saveNotesTimeout) clearTimeout(saveNotesTimeout);
+    saveNotesTimeout = setTimeout(() => saveNotes(), delay);
+    }
+    let saveUsersTimeout = null;
+    function scheduleSaveUsers(delay = 150) {
+    if (saveUsersTimeout) clearTimeout(saveUsersTimeout);
+    saveUsersTimeout = setTimeout(() => saveUsers(), delay);
+    }
+
+    // Utility: sort pinned first, then newest
+    function sortNotes(arr) {
     return arr.slice().sort((a,b) => {
         if (a.pinned === b.pinned) return new Date(b.createdAt) - new Date(a.createdAt);
         return (a.pinned ? -1 : 1);
     });
     }
 
-    // Simple escape for rendering (frontend already escapes too, but safe)
-    function escapeHtml(s = '') {
-    return String(s).replace(/[&<>"'`]/g, c => ({
-        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'
-    })[c]);
+    // Auth middleware
+    function requireAuth(req, res, next) {
+    if (req.session && req.session.userId) return next();
+    return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // --- API routes ---
+    // ------------------ AUTH ROUTES ------------------
 
-    // GET all notes
-    app.get('/api/notes', (req, res) => {
-    res.json(sortNotes(notes));
+    // Register
+    app.post('/api/register', async (req, res) => {
+    try {
+        const { username, password } = req.body || {};
+        if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+        const uname = String(username).trim().toLowerCase();
+        if (users.find(u => u.username === uname)) return res.status(400).json({ error: 'Username already taken' });
+        const hash = await bcrypt.hash(password, 10);
+        const user = { id: nextUserId++, username: uname, passwordHash: hash, createdAt: new Date().toISOString() };
+        users.push(user);
+        scheduleSaveUsers();
+        // auto-login
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        res.status(201).json({ id: user.id, username: user.username });
+    } catch (err) {
+        console.error('Register error', err);
+        res.status(500).json({ error: 'Server error' });
+    }
     });
 
-    // POST create note
-    app.post('/api/notes', (req, res) => {
-    const { text } = req.body;
+    // Login
+    app.post('/api/login', async (req, res) => {
+    try {
+        const { username, password } = req.body || {};
+        if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+        const uname = String(username).trim().toLowerCase();
+        const user = users.find(u => u.username === uname);
+        if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+        const ok = await bcrypt.compare(password, user.passwordHash);
+        if (!ok) return res.status(400).json({ error: 'Invalid credentials' });
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        res.json({ id: user.id, username: user.username });
+    } catch (err) {
+        console.error('Login error', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+    });
+
+    // Logout
+    app.post('/api/logout', (req, res) => {
+    req.session.destroy(err => {
+        if (err) return res.status(500).json({ error: 'Logout failed' });
+        res.clearCookie('quicknotes.sid');
+        res.json({ success: true });
+    });
+    });
+
+    // Whoami
+    app.get('/api/me', (req, res) => {
+    if (req.session && req.session.userId) {
+        return res.json({ id: req.session.userId, username: req.session.username });
+    }
+    return res.json(null);
+    });
+
+    // ------------------ NOTES ROUTES (per-user) ------------------
+
+    // GET notes for current user
+    app.get('/api/notes', requireAuth, (req, res) => {
+    const userId = req.session.userId;
+    const userNotes = notes.filter(n => n.userId === userId);
+    res.json(sortNotes(userNotes));
+    });
+
+    // POST create note (belongs to logged-in user)
+    app.post('/api/notes', requireAuth, (req, res) => {
+    const { text } = req.body || {};
     if (!text || !String(text).trim()) return res.status(400).json({ error: 'Empty note' });
+    const userId = req.session.userId;
     const note = {
-        id: nextId++,
+        id: nextNoteId++,
+        userId,
         text: String(text).trim(),
-        createdAt: new Date().toISOString(),
         pinned: false,
+        createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
     notes.unshift(note);
-    scheduleSave(); // persist shortly
+    scheduleSaveNotes();
     res.status(201).json(note);
     });
 
-    // PUT update note (text and/or pinned)
-    app.put('/api/notes/:id', (req, res) => {
+    // PUT update note (only if owner)
+    app.put('/api/notes/:id', requireAuth, (req, res) => {
     const id = Number(req.params.id);
     const idx = notes.findIndex(n => n.id === id);
     if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    const note = notes[idx];
+    if (note.userId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
+
     const { text, pinned } = req.body;
-    if (typeof text === 'string') notes[idx].text = String(text).trim();
-    if (typeof pinned === 'boolean') notes[idx].pinned = pinned;
-    notes[idx].updatedAt = new Date().toISOString();
-    scheduleSave();
-    res.json(notes[idx]);
+    if (typeof text === 'string') note.text = String(text).trim();
+    if (typeof pinned === 'boolean') note.pinned = pinned;
+    note.updatedAt = new Date().toISOString();
+    scheduleSaveNotes();
+    res.json(note);
     });
 
-    // DELETE note
-    app.delete('/api/notes/:id', (req, res) => {
+    // DELETE note (only if owner)
+    app.delete('/api/notes/:id', requireAuth, (req, res) => {
     const id = Number(req.params.id);
     const idx = notes.findIndex(n => n.id === id);
     if (idx === -1) return res.status(404).json({ error: 'Not found' });
+    const note = notes[idx];
+    if (note.userId !== req.session.userId) return res.status(403).json({ error: 'Forbidden' });
     const removed = notes.splice(idx, 1)[0];
-    scheduleSave();
+    scheduleSaveNotes();
     res.json(removed);
     });
 
-    // fallback for SPA
+    // Serve frontend
     app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
     });
 
-    // --- Start server after loading data ---
+    // Load and start
     (async () => {
-    await loadData();
+    await loadUsers();
+    await loadNotes();
     app.listen(PORT, () => {
-        console.log(`Quick Notes server running on http://localhost:${PORT}`);
+        console.log(`Quick Notes (per-user) server running on http://localhost:${PORT}`);
     });
     })();

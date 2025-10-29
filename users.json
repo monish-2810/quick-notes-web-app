@@ -1,0 +1,16 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "username": "monishbalaji2810@gmail.com",
+      "passwordHash": "$2b$10$68Cf2dpy2juX1yj64f7jCeM9FHrOIREJamkFztat7WWhZKPz4PmYS",
+      "createdAt": "2025-10-29T05:42:46.322Z"
+    },
+    {
+      "id": 2,
+      "username": "guest",
+      "passwordHash": "$2b$10$2Q/zb/ClPrWLRiU30KTxD.CqVARy9FfaoTJxkZKlLTD4jqc10NroO",
+      "createdAt": "2025-10-29T05:50:45.712Z"
+    }
+  ]
+}
