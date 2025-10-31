@@ -11,6 +11,18 @@
       "username": "guest",
       "passwordHash": "$2b$10$2Q/zb/ClPrWLRiU30KTxD.CqVARy9FfaoTJxkZKlLTD4jqc10NroO",
       "createdAt": "2025-10-29T05:50:45.712Z"
+    },
+    {
+      "id": 3,
+      "username": "narendran",
+      "passwordHash": "$2b$10$X.YmAw.W2E1XUVudeS2zf.vesE1JB9uiGhH5zvDzHbkbI.N2L7cPO",
+      "createdAt": "2025-10-30T04:08:56.260Z"
+    },
+    {
+      "id": 4,
+      "username": "monish",
+      "passwordHash": "$2b$10$F78zeNUfJr5xOLRklxF2uOBzWU99N93.adbYLUj.JuZPdBCUDot8m",
+      "createdAt": "2025-10-31T14:37:04.102Z"
     }
   ]
 }

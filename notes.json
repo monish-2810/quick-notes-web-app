@@ -1,6 +1,38 @@
 {
   "notes": [
     {
+      "id": 11,
+      "userId": 4,
+      "text": "hello",
+      "pinned": false,
+      "createdAt": "2025-10-31T14:37:25.278Z",
+      "updatedAt": "2025-10-31T14:37:25.278Z"
+    },
+    {
+      "id": 10,
+      "userId": 4,
+      "text": "hi everyone!@",
+      "pinned": true,
+      "createdAt": "2025-10-31T14:37:17.593Z",
+      "updatedAt": "2025-10-31T14:37:28.518Z"
+    },
+    {
+      "id": 9,
+      "userId": 1,
+      "text": "this is quick notes web app used to take small hints and schedule",
+      "pinned": false,
+      "createdAt": "2025-10-31T14:36:01.188Z",
+      "updatedAt": "2025-10-31T14:36:01.188Z"
+    },
+    {
+      "id": 8,
+      "userId": 3,
+      "text": "hi everyone",
+      "pinned": true,
+      "createdAt": "2025-10-30T04:09:08.623Z",
+      "updatedAt": "2025-10-30T04:09:20.975Z"
+    },
+    {
       "id": 7,
       "userId": 2,
       "text": "hi\nhello",
@@ -12,9 +44,9 @@
       "id": 6,
       "userId": 1,
       "text": "hi",
-      "pinned": false,
+      "pinned": true,
       "createdAt": "2025-10-29T05:49:29.543Z",
-      "updatedAt": "2025-10-29T05:49:29.543Z"
+      "updatedAt": "2025-10-31T14:36:16.565Z"
     },
     {
       "id": 5,
